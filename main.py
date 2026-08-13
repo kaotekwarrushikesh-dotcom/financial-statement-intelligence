@@ -19,7 +19,7 @@ def run(csv_path: Path, company: str) -> pd.DataFrame:
     ratios = calculate_ratios(df)
 
     first, last = int(ratios["fiscal_year"].iloc[0]), int(ratios["fiscal_year"].iloc[-1])
-    print(f"\n{company} — Financial Statement Intelligence  (FY{first}-FY{last})")
+    print(f"\n{company}: Financial Statement Intelligence  (FY{first}-FY{last})")
     print("=" * 70)
 
     print("\nKEY RATIOS BY YEAR")
@@ -42,7 +42,7 @@ def run(csv_path: Path, company: str) -> pd.DataFrame:
         print(f"  - {line}")
 
     health = financial_health_score(ratios)
-    print(f"\nFINANCIAL HEALTH: {health['overall']}/100 — {health['rating']}")
+    print(f"\nFINANCIAL HEALTH: {health['overall']}/100  ({health['rating']})")
     for pillar in PILLARS:
         score = health["pillars"][pillar.name]
         bar = "#" * int(score / 5)

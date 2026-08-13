@@ -1,4 +1,4 @@
-# Module 1 — Financial Statement Intelligence
+# Module 1: Financial Statement Intelligence
 
 Takes raw financial statements, cleans and structures them, calculates financial
 metrics, identifies trends, and produces a transparent Financial Health Score.
@@ -56,10 +56,10 @@ One row per fiscal year, in reporting currency millions.
 
 ## Ratios calculated
 
-**Profitability** — gross margin, EBITDA margin, EBIT margin, net margin, ROE, ROA
-**Efficiency** — asset turnover, working capital, current ratio
-**Leverage** — debt-to-equity, interest coverage
-**Cash flow** — FCF, FCF margin, CFO-to-net-income
+**Profitability**: gross margin, EBITDA margin, EBIT margin, net margin, ROE, ROA
+**Efficiency**: asset turnover, working capital, current ratio
+**Leverage**: debt-to-equity, interest coverage
+**Cash flow**: FCF, FCF margin, CFO-to-net-income
 
 ## Trend analysis
 
@@ -111,7 +111,7 @@ year cannot dominate it.
 ### Current result
 
 ```
-FINANCIAL HEALTH: 76.8/100 — Healthy
+FINANCIAL HEALTH: 76.8/100  (Healthy)
   Profitability     97.7  (weight 25%)
   Growth            55.1  (weight 20%)
   Leverage          54.3  (weight 20%)
