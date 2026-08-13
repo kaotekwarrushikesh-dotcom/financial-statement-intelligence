@@ -6,6 +6,18 @@ from src.data_loader import REQUIRED_COLUMNS
 
 NUMERIC_COLUMNS = [c for c in REQUIRED_COLUMNS if c != "fiscal_year"]
 
+# Fields without which the analysis is not meaningful. Everything else may be missing for
+# legitimate reasons: oil majors and some software firms never report a gross profit line,
+# and several companies stopped separately tagging interest expense.
+CORE_COLUMNS = [
+    "revenue",
+    "ebit",
+    "net_income",
+    "total_assets",
+    "equity",
+    "cfo",
+]
+
 
 def clean_financials(df: pd.DataFrame) -> pd.DataFrame:
     """Sort by fiscal year, enforce numeric types, and check for gaps.
@@ -19,9 +31,9 @@ def clean_financials(df: pd.DataFrame) -> pd.DataFrame:
     for col in NUMERIC_COLUMNS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    if df[NUMERIC_COLUMNS].isnull().any().any():
-        bad_cols = df[NUMERIC_COLUMNS].columns[df[NUMERIC_COLUMNS].isnull().any()].tolist()
-        raise ValueError(f"Non-numeric or missing values found in columns: {bad_cols}")
+    if df[CORE_COLUMNS].isnull().any().any():
+        bad_cols = df[CORE_COLUMNS].columns[df[CORE_COLUMNS].isnull().any()].tolist()
+        raise ValueError(f"Missing values in core columns: {bad_cols}")
 
     df = df.sort_values("fiscal_year").reset_index(drop=True)
 

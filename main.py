@@ -11,7 +11,7 @@ from src.financial_health import PILLARS, financial_health_score
 from src.ratios import calculate_ratios
 from src.trends import trend_report
 
-DEFAULT_DATA = Path(__file__).parent / "data" / "aapl_financials.csv"
+DEFAULT_DATA = Path(__file__).parent / "data" / "AAPL_financials.csv"
 
 
 def run(csv_path: Path, company: str) -> pd.DataFrame:

@@ -43,9 +43,12 @@ PILLARS = [
         "Growth",
         0.20,
         [
-            MetricSpec("revenue_cagr", -0.05, 0.15, 0.40),
-            MetricSpec("net_income_cagr", -0.05, 0.20, 0.35),
-            MetricSpec("eps_cagr", -0.05, 0.20, 0.25),
+            # EPS growth is deliberately excluded. EDGAR restates only the ~3 years each
+            # 10-K covers, so a 10-year EPS series mixes pre- and post-split bases and its
+            # CAGR is an artefact of share splits rather than performance. Revenue and net
+            # income are split-immune.
+            MetricSpec("revenue_cagr", -0.05, 0.15, 0.50),
+            MetricSpec("net_income_cagr", -0.05, 0.20, 0.50),
         ],
     ),
     PillarSpec(
@@ -108,7 +111,6 @@ def build_metric_inputs(ratios_df: pd.DataFrame) -> dict[str, float]:
     for metric, column in [
         ("revenue_cagr", "revenue"),
         ("net_income_cagr", "net_income"),
-        ("eps_cagr", "eps"),
     ]:
         inputs[metric] = cagr(
             ratios_df[column].iloc[0], ratios_df[column].iloc[-1], n_years
@@ -117,16 +119,38 @@ def build_metric_inputs(ratios_df: pd.DataFrame) -> dict[str, float]:
     return inputs
 
 
-def score_pillars(ratios_df: pd.DataFrame) -> dict[str, float]:
-    """Score each pillar 0-100 as the weighted average of its metric scores."""
+def score_pillars(ratios_df: pd.DataFrame) -> tuple[dict[str, float], list[str]]:
+    """Score each pillar 0-100 as the weighted average of its available metric scores.
+
+    Metrics that cannot be computed (an unreported line item, or a ratio whose denominator
+    is missing) are dropped and the remaining weights within that pillar are renormalized.
+    Scoring a data gap as either 0 or 100 would be a fabricated result; the dropped metrics
+    are returned so the report can disclose them.
+    """
     inputs = build_metric_inputs(ratios_df)
+    pillar_scores: dict[str, float] = {}
+    unavailable: list[str] = []
 
-    pillar_scores = {}
     for pillar in PILLARS:
-        total = sum(score_metric(inputs[m.name], m) * m.weight for m in pillar.metrics)
-        pillar_scores[pillar.name] = round(total, 1)
+        scored = []
+        for metric in pillar.metrics:
+            value = inputs.get(metric.name, float("nan"))
+            score = score_metric(value, metric)
+            if pd.isna(score):
+                unavailable.append(metric.name)
+            else:
+                scored.append((score, metric.weight))
 
-    return pillar_scores
+        if not scored:
+            pillar_scores[pillar.name] = float("nan")
+            continue
+
+        total_weight = sum(w for _, w in scored)
+        pillar_scores[pillar.name] = round(
+            sum(s * w for s, w in scored) / total_weight, 1
+        )
+
+    return pillar_scores, unavailable
 
 
 def rating_band(score: float) -> str:
@@ -143,11 +167,15 @@ def rating_band(score: float) -> str:
 
 def financial_health_score(ratios_df: pd.DataFrame) -> dict:
     """Produce the overall score, its band, and the pillar decomposition behind it."""
-    pillar_scores = score_pillars(ratios_df)
-    overall = sum(pillar_scores[p.name] * p.weight for p in PILLARS)
+    pillar_scores, unavailable = score_pillars(ratios_df)
+
+    available = [p for p in PILLARS if not pd.isna(pillar_scores[p.name])]
+    total_weight = sum(p.weight for p in available)
+    overall = sum(pillar_scores[p.name] * p.weight for p in available) / total_weight
 
     return {
         "overall": round(overall, 1),
         "rating": rating_band(overall),
         "pillars": pillar_scores,
+        "unavailable_metrics": unavailable,
     }

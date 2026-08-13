@@ -81,3 +81,40 @@ def test_health_score_in_range(sample_df):
     health = financial_health_score(calculate_ratios(sample_df))
     assert 0 <= health["overall"] <= 100
     assert len(health["pillars"]) == 5
+
+
+def test_negative_equity_makes_equity_ratios_unavailable():
+    """Buyback-driven negative equity must not score as pristine leverage."""
+    df = pd.DataFrame([make_row(y, equity=-500.0) for y in (2020, 2021, 2022)])
+    r = calculate_ratios(df)
+    assert r["debt_to_equity"].isna().all()
+    assert r["roe"].isna().all()
+
+
+def test_zero_interest_expense_is_not_infinite_coverage():
+    df = pd.DataFrame([make_row(y, interest_expense=0.0) for y in (2020, 2021, 2022)])
+    r = calculate_ratios(df)
+    assert r["interest_coverage"].isna().all()
+
+
+@pytest.mark.parametrize("first,last", [(-100, 200), (100, -200), (0, 100)])
+def test_cagr_undefined_for_non_positive_endpoints(first, last):
+    assert pd.isna(cagr(first, last, 3))
+
+
+def test_missing_metric_renormalizes_pillar_weights():
+    """A dropped metric must redistribute its weight, not count as zero or full marks."""
+    full = pd.DataFrame([make_row(y) for y in (2020, 2021, 2022)])
+    # Wipe interest expense so interest coverage (35% of Leverage) becomes unavailable.
+    partial = full.assign(interest_expense=0.0)
+
+    full_health = financial_health_score(calculate_ratios(full))
+    partial_health = financial_health_score(calculate_ratios(partial))
+
+    assert "interest_coverage" in partial_health["unavailable_metrics"]
+    assert not pd.isna(partial_health["pillars"]["Leverage"])
+
+    # Remaining metrics score 100 (D/E 0.50) and ~0 (current ratio 2.0 hits the ceiling),
+    # so the renormalized result must stay a genuine weighted average, not collapse to 0.
+    assert 0 < partial_health["pillars"]["Leverage"] <= 100
+    assert partial_health["pillars"]["Leverage"] != full_health["pillars"]["Leverage"]

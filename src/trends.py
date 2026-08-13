@@ -4,8 +4,13 @@ import pandas as pd
 
 
 def cagr(first: float, last: float, years: int) -> float:
-    """Compound annual growth rate between two values over `years` periods."""
-    if first <= 0 or years <= 0:
+    """Compound annual growth rate between two values over `years` periods.
+
+    Undefined when either endpoint is non-positive: a loss-making start year or a metric
+    that crosses zero has no meaningful compound rate, and the fractional power of a
+    negative ratio is not a real number.
+    """
+    if first <= 0 or last <= 0 or years <= 0:
         return float("nan")
     return (last / first) ** (1 / years) - 1
 
@@ -21,7 +26,16 @@ def add_yoy_changes(ratios_df: pd.DataFrame, columns: list[str]) -> pd.DataFrame
 def summarize_trend(ratios_df: pd.DataFrame, column: str, label: str, as_percent: bool = True) -> str:
     """Produce an interviewer-style sentence describing how a metric moved across the period."""
     first_year, last_year = int(ratios_df["fiscal_year"].iloc[0]), int(ratios_df["fiscal_year"].iloc[-1])
-    first_val, last_val = ratios_df[column].iloc[0], ratios_df[column].iloc[-1]
+
+    series = ratios_df[column].dropna()
+    if series.empty:
+        return f"{label} is not reported in these filings."
+
+    # Fall back to the first and last years that actually carry a value, so a metric that
+    # only exists for part of the period still gets described over its real span.
+    first_val, last_val = series.iloc[0], series.iloc[-1]
+    first_year = int(ratios_df.loc[series.index[0], "fiscal_year"])
+    last_year = int(ratios_df.loc[series.index[-1], "fiscal_year"])
 
     def fmt(v: float) -> str:
         if as_percent:
@@ -31,9 +45,8 @@ def summarize_trend(ratios_df: pd.DataFrame, column: str, label: str, as_percent
     direction = "increased" if last_val > first_val else "declined" if last_val < first_val else "held steady"
     n_years = last_year - first_year
 
-    growth_note = ""
-    if first_val > 0:
-        growth_note = f" ({cagr(first_val, last_val, n_years):+.1%} CAGR)"
+    rate = cagr(first_val, last_val, n_years)
+    growth_note = "" if pd.isna(rate) else f" ({rate:+.1%} CAGR)"
 
     return (
         f"{label} {direction} from {fmt(first_val)} in FY{first_year} to {fmt(last_val)} "

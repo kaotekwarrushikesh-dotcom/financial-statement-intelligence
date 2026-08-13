@@ -1,4 +1,6 @@
 .venv/
+# Raw EDGAR API responses, ~77MB. Regenerate with fetch_data.py.
+data/.edgar_cache/
 __pycache__/
 *.pyc
 .pytest_cache/

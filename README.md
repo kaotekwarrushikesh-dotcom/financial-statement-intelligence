@@ -3,20 +3,33 @@
 Takes raw financial statements, cleans and structures them, calculates financial
 metrics, identifies trends, and produces a transparent Financial Health Score.
 
-Pilot company: **Apple Inc. (AAPL), FY2015-FY2024** (10 fiscal years, USD millions).
+Covers **20 large US companies, 10 fiscal years each**, with every figure pulled from
+filed 10-K data via the SEC EDGAR XBRL API. Nothing is hand-entered.
 
 ## Quick start
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python main.py
 ```
 
-Run against a different company by pointing at another CSV with the same columns:
+Download the data (writes `data/<TICKER>_financials.csv` for the whole universe, cached
+locally so re-runs do not re-hit EDGAR):
 
 ```bash
-.venv/bin/python main.py --data data/msft_financials.csv --company "Microsoft (MSFT)"
+.venv/bin/python fetch_data.py
+```
+
+Build the report (writes the PDF and CSVs into `reports/`):
+
+```bash
+.venv/bin/python build_report.py
+```
+
+Analyse a single company in the terminal:
+
+```bash
+.venv/bin/python main.py --data data/NVDA_financials.csv --company "NVIDIA (NVDA)"
 ```
 
 Tests:
@@ -25,20 +38,61 @@ Tests:
 .venv/bin/python -m pytest tests/ -q
 ```
 
+## Outputs
+
+| File | What it is |
+|---|---|
+| `reports/financial_health_report.pdf` | 23-page report: league table, sector averages, one page per company, methodology |
+| `reports/company_scores.csv` | One row per company: score, rating, pillar breakdown, headline ratios |
+| `reports/all_ratios_by_year.csv` | Every ratio for every company for every year |
+
+## Data source and known data traps
+
+Data comes from `https://data.sec.gov/api/xbrl/companyfacts/`. Getting a clean 10-year
+series out of EDGAR is most of the work in this module, and four traps are handled
+explicitly:
+
+1. **Companies migrate between GAAP tags mid-history.** Revenue moves from `Revenues` to
+   `RevenueFromContractWithCustomerExcludingAssessedTax` after ASC 606, so each field maps
+   to an ordered list of candidate tags and values are merged across them rather than taken
+   from the first tag that returns anything.
+2. **Not every company reports operating income.** Oil majors and several large pharma
+   companies never tag `OperatingIncomeLoss`, so EBIT is rebuilt as pretax income plus
+   interest expense.
+3. **EPS is not comparable across a stock split.** A 10-K restates only the roughly three
+   years it covers, so Apple's FY2018 EPS appears as 11.91 in the FY2018 filing and 2.98 in
+   the FY2020 filing after the 4-for-1 split, while FY2017 is never restated at all. EPS
+   growth is therefore excluded from scoring.
+4. **EDGAR's ticker map can point at the wrong entity.** `XOM` resolves to a newer
+   registrant carrying only a handful of tags; the operating company with the full history
+   is CIK 34088, so a small override map exists.
+
+Fiscal years are labelled by the calendar year containing most of the period (a period
+ending in month 6 or later takes that year, otherwise the prior year). This keeps
+January-year-end retailers comparable with December-year-end peers, but it means the label
+can differ by one from the company's own naming: NVIDIA's own FY2025 ends January 2025 and
+appears here as FY2024.
+
 ## Structure
 
 ```
 financial_statement_intelligence/
-├── data/aapl_financials.csv    one row per fiscal year
+├── data/                       one CSV per company, plus a cached EDGAR download
+├── reports/                    generated PDF and CSV outputs
 ├── notebooks/
 ├── src/
+│   ├── edgar_fetch.py          SEC EDGAR download, tag mapping, normalization
+│   ├── universe.py             the 20 companies and their sectors
 │   ├── data_loader.py          read CSV, validate required columns
 │   ├── data_cleaning.py        types, sorting, consecutive-year check
 │   ├── ratios.py               profitability, efficiency, leverage, cash flow
 │   ├── trends.py               YoY change, CAGR, plain-language narratives
-│   └── financial_health.py     pillar scoring and overall score
+│   ├── financial_health.py     pillar scoring and overall score
+│   └── reporting.py            cross-company analysis and PDF generation
 ├── tests/
-├── main.py
+├── fetch_data.py               download all companies
+├── build_report.py             analyse all companies and write reports/
+├── main.py                     single-company terminal analysis
 └── requirements.txt
 ```
 
@@ -83,9 +137,8 @@ which inverts the scale.
 | Profitability | 25% | net margin | 0% | 25% | 40% |
 | | | EBITDA margin | 5% | 35% | 30% |
 | | | ROE | 5% | 40% | 30% |
-| Growth | 20% | revenue CAGR | -5% | 15% | 40% |
-| | | net income CAGR | -5% | 20% | 35% |
-| | | EPS CAGR | -5% | 20% | 25% |
+| Growth | 20% | revenue CAGR | -5% | 15% | 50% |
+| | | net income CAGR | -5% | 20% | 50% |
 | Leverage | 20% | debt-to-equity | 3.00 | 0.20 | 40% |
 | | | interest coverage | 3.0x | 30.0x | 35% |
 | | | current ratio | 0.70 | 2.00 | 25% |
@@ -98,6 +151,22 @@ Profitability, leverage, cash generation and efficiency are scored on the **late
 fiscal year. Growth is scored on the **full-period CAGR**, so a single strong or weak
 year cannot dominate it.
 
+### Metrics that cannot be computed
+
+Some companies do not report some line items. Where a metric is unavailable it is
+**dropped and the remaining weights in its pillar are renormalized**, and the affected
+metrics are listed on that company's page in the report. Scoring a data gap as either 0
+or 100 would be a fabricated result. Three cases occur in this universe:
+
+- **No gross profit line.** Exxon and Oracle do not report one in a usable form, so gross
+  margin is blank for them. It is display-only and does not feed the score.
+- **Interest expense no longer tagged.** Apple and Meta stopped tagging it separately in
+  recent years. Dividing by zero would give infinite interest coverage and a perfect
+  leverage score, so those years are marked unavailable instead.
+- **Negative shareholders' equity.** Sustained buybacks push book equity below zero at
+  Home Depot, AbbVie and Oracle. Debt-to-equity and ROE then flip sign and stop meaning
+  anything, and a negative debt-to-equity would otherwise clamp to a perfect score.
+
 ### Rating bands
 
 | Score | Rating |
@@ -108,36 +177,57 @@ year cannot dominate it.
 | 35-49 | Weak |
 | 0-34 | Distressed |
 
-### Current result
+### Current results
 
-```
-FINANCIAL HEALTH: 76.8/100  (Healthy)
-  Profitability     97.7  (weight 25%)
-  Growth            55.1  (weight 20%)
-  Leverage          54.3  (weight 20%)
-  Cash generation   83.0  (weight 20%)
-  Efficiency        92.9  (weight 15%)
-```
+| # | Company | Sector | Score | Rating |
+|---|---|---|---|---|
+| 1 | NVDA NVIDIA | Technology | 89.5 | Strong |
+| 2 | META Meta Platforms | Comm. Services | 89.5 | Strong |
+| 3 | GOOGL Alphabet | Comm. Services | 87.5 | Strong |
+| 4 | MSFT Microsoft | Technology | 83.6 | Strong |
+| 5 | AAPL Apple | Technology | 73.3 | Healthy |
+| 6 | MRK Merck | Healthcare | 66.5 | Healthy |
+| 7 | AMZN Amazon | Cons. Disc. | 65.8 | Healthy |
+| 8 | JNJ Johnson & Johnson | Healthcare | 63.3 | Adequate |
+| 9 | COST Costco | Cons. Staples | 59.8 | Adequate |
+| 10 | XOM Exxon Mobil | Energy | 57.4 | Adequate |
+| 11 | PG Procter & Gamble | Cons. Staples | 57.0 | Adequate |
+| 12 | KO Coca-Cola | Cons. Staples | 54.9 | Adequate |
+| 13 | TSLA Tesla | Cons. Disc. | 54.6 | Adequate |
+| 14 | ORCL Oracle | Technology | 49.4 | Weak |
+| 15 | CVX Chevron | Energy | 48.2 | Weak |
+| 16 | HD Home Depot | Cons. Disc. | 47.0 | Weak |
+| 17 | PEP PepsiCo | Cons. Staples | 45.8 | Weak |
+| 18 | WMT Walmart | Cons. Staples | 45.1 | Weak |
+| 19 | ABBV AbbVie | Healthcare | 42.2 | Weak |
+| 20 | PFE Pfizer | Healthcare | 42.0 | Weak |
 
 ### Known limitations
 
 These matter more than the score itself in an interview setting.
 
-1. **Thresholds are absolute, not sector-relative.** A 24% net margin is exceptional for a
-   retailer and unremarkable for a software company. Peer benchmarking is the fix, and it
-   belongs in a later module.
-2. **ROE is distorted by buybacks.** Apple's ROE rises from 45% to 165% across the period
-   largely because aggressive repurchases shrank the equity base, not because returns
-   improved that dramatically. The leverage pillar partly offsets this, but ROE should be
-   read alongside ROA (which is far flatter).
-3. **Leverage scores low for a reason worth defending.** Apple's 1.87x debt-to-equity looks
-   stretched on the raw ratio, yet interest coverage above 30x and a large net cash position
-   say the balance sheet is not stressed. This is exactly the gap an analyst should narrate
-   rather than let the number speak alone.
-4. **Single-year snapshots are noisy.** Four of five pillars use the latest year only. Using
-   a three-year average would trade responsiveness for stability.
-5. **No accounting-quality checks yet.** Restatements, one-off items, and changes in
-   segment reporting are not detected.
+1. **Thresholds are absolute, not sector-relative.** This is the dominant weakness and it is
+   visible in the results: the top four are all asset-light software and advertising
+   businesses, while Walmart ranks 18th despite being a well-run company. Walmart's 3.1% net
+   margin is normal for grocery retail and scores near zero against a threshold calibrated on
+   absolute profitability. The ranking measures how a business model looks against fixed
+   thresholds, not how well the company is run. Peer-relative scoring is the fix.
+2. **ROE is distorted by buybacks.** Companies that repurchase heavily show ROE inflated by a
+   shrunken equity base rather than by better returns, and at the extreme (Home Depot, AbbVie)
+   equity goes negative and the ratio breaks entirely. Read ROE next to ROA, which is far
+   more stable.
+3. **A low leverage score is not always financial stress.** Apple scores 44.6 on leverage
+   because its raw debt-to-equity looks stretched, yet its interest coverage and net cash
+   position say the balance sheet is comfortable. This gap is exactly what an analyst should
+   narrate rather than letting the ratio speak alone.
+4. **Single-year snapshots are noisy.** Four of five pillars use the latest year only, so one
+   unusual year moves them. Growth uses the full-period CAGR. A three-year average would trade
+   responsiveness for stability.
+5. **Financial-sector companies are excluded.** Banks and insurers do not report gross profit
+   and their balance sheets are unclassified, so current ratio and working capital are
+   undefined. They need a different model rather than a looser one.
+6. **No accounting-quality checks yet.** Restatements, one-off items, and changes in
+   segment reporting are not detected. The pipeline trusts what was filed.
 
 ## Roadmap
 
