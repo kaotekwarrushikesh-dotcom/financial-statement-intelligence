@@ -14,11 +14,15 @@ python3 -m venv .venv
 ```
 
 Download the data (writes `data/<TICKER>_financials.csv` for the whole universe, cached
-locally so re-runs do not re-hit EDGAR):
+locally so re-runs do not re-hit EDGAR). SEC asks callers to identify themselves with a
+contact address and throttles requests that do not, so set one first:
 
 ```bash
+export SEC_USER_AGENT="your name your@email.com"
 .venv/bin/python fetch_data.py
 ```
+
+The committed CSVs mean the report can be rebuilt without re-downloading anything.
 
 Build the report (writes the PDF and CSVs into `reports/`):
 

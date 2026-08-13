@@ -12,6 +12,7 @@ December-year-end peers.
 """
 
 import json
+import os
 import time
 from datetime import date
 from pathlib import Path
@@ -19,7 +20,10 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-USER_AGENT = "rushikesh kaotekwarrushikesh@gmail.com"
+# SEC asks every API caller to identify itself with a contact address and throttles or
+# blocks requests that do not. Read it from the environment rather than committing a real
+# address into a public repository, where it would simply be harvested.
+USER_AGENT = os.environ.get("SEC_USER_AGENT", "financial-statement-intelligence (set SEC_USER_AGENT)")
 COMPANY_FACTS = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 TICKER_MAP = "https://www.sec.gov/files/company_tickers.json"
 
