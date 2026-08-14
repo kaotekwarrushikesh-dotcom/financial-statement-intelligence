@@ -60,7 +60,12 @@ DURATION_TAGS = {
         "DepreciationAmortizationAndAccretionNet",
         "DepreciationAndAmortization",
         "Depreciation",
+        "DepreciationNonproduction",
     ],
+    # Alphabet and others report depreciation and intangible amortization on separate
+    # lines and never tag a combined figure, so the two halves are summed as a fallback.
+    "_depreciation_only": ["DepreciationNonproduction", "Depreciation"],
+    "_amortization_only": ["AmortizationOfIntangibleAssets"],
     "interest_expense": [
         "InterestExpense",
         "InterestExpenseNonoperating",
@@ -76,6 +81,9 @@ DURATION_TAGS = {
     "capex": [
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "PaymentsToAcquireProductiveAssets",
+        "PaymentsToAcquireOtherPropertyPlantAndEquipment",
+        "PaymentsForCapitalImprovements",
+        "PaymentsToAcquirePropertyPlantAndEquipmentAndIntangibleAssets",
     ],
     "financing_cash_flow": ["NetCashProvidedByUsedInFinancingActivities"],
     "investing_cash_flow": ["NetCashProvidedByUsedInInvestingActivities"],
@@ -190,6 +198,13 @@ def build_company_frame(ticker: str, cik: int, cache_dir: Path, years: int = 10)
         series[field] = _annual_series(facts, tags, "USD", instant=True)
     series["eps"] = _annual_series(facts, EPS_TAGS, "USD/shares", instant=False)
 
+    # Sum split depreciation and amortization lines where no combined figure was tagged.
+    for fy, dep in series["_depreciation_only"].items():
+        if fy not in series["dep_amort"]:
+            amort = series["_amortization_only"].get(fy)
+            if amort is not None:
+                series["dep_amort"][fy] = dep + amort
+
     # Rebuild EBIT where no operating income line was tagged.
     for fy, pretax in series["pretax_income"].items():
         if fy not in series["ebit"]:
@@ -224,11 +239,21 @@ def build_company_frame(ticker: str, cik: int, cache_dir: Path, years: int = 10)
         if pd.isna(cogs) and not pd.isna(gross_profit):
             cogs = revenue - gross_profit
 
+        # Missing D&A, capex and interest are left as NaN rather than defaulted to zero.
+        # A zero here is not "the company spent nothing", it is "the company did not tag
+        # this line", and treating the two as the same silently overstates EBITDA margin,
+        # free cash flow and interest coverage.
         ebit = g("ebit")
-        dep = g("dep_amort", 0.0)
+        dep = g("dep_amort")
         ebitda = ebit + dep
 
-        ltd, std = g("long_term_debt", 0.0), g("short_term_debt", 0.0)
+        # Debt is the exception: a company reporting only long-term debt genuinely has no
+        # short-term borrowings to add, so a missing side is treated as zero, but a company
+        # with neither tagged has unknown, not zero, total debt.
+        ltd, std = g("long_term_debt"), g("short_term_debt")
+        total_debt = float("nan") if pd.isna(ltd) and pd.isna(std) else (
+            (0.0 if pd.isna(ltd) else ltd) + (0.0 if pd.isna(std) else std)
+        )
 
         rows.append(
             {
@@ -238,7 +263,8 @@ def build_company_frame(ticker: str, cik: int, cache_dir: Path, years: int = 10)
                 "gross_profit": gross_profit,
                 "ebitda": ebitda,
                 "ebit": ebit,
-                "interest_expense": g("interest_expense", 0.0),
+                "dep_amort": dep,
+                "interest_expense": g("interest_expense"),
                 "tax_expense": g("tax_expense"),
                 "net_income": g("net_income"),
                 "eps": g("eps"),
@@ -246,10 +272,12 @@ def build_company_frame(ticker: str, cik: int, cache_dir: Path, years: int = 10)
                 "current_assets": g("current_assets"),
                 "total_assets": g("total_assets"),
                 "current_liabilities": g("current_liabilities"),
-                "total_debt": ltd + std,
+                "total_debt": total_debt,
+                "short_term_debt": std,
+                "long_term_debt": ltd,
                 "equity": g("equity"),
                 "cfo": g("cfo"),
-                "capex": g("capex", 0.0),
+                "capex": g("capex"),
                 "financing_cash_flow": g("financing_cash_flow"),
                 "investing_cash_flow": g("investing_cash_flow"),
             }
