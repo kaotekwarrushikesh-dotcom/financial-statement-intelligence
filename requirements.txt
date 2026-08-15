@@ -1,4 +1,16 @@
+# Core analysis
 pandas>=2.0
-pytest>=8.0
-streamlit>=1.30
+numpy>=1.24
+
+# Data sources: EDGAR is fetched over plain HTTP, everything else via yfinance
+requests>=2.31
 yfinance>=0.2.40
+
+# App
+streamlit>=1.30
+
+# Batch PDF report (build_report.py only, not needed by the app)
+reportlab>=4.0
+
+# Tests
+pytest>=8.0
