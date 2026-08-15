@@ -3,8 +3,14 @@
 Takes raw financial statements, cleans and structures them, calculates financial
 metrics, identifies trends, and produces a transparent Financial Health Score.
 
-Covers **20 large US companies, 10 fiscal years each**, with every figure pulled from
-filed 10-K data via the SEC EDGAR XBRL API. Nothing is hand-entered.
+Works for **any listed company, in any market**: US, Europe, India, Japan and elsewhere.
+Type a company name into the app and get its financial health.
+
+- **US listings** use SEC EDGAR filings, ten years, authoritative and free.
+- **Everywhere else** uses Yahoo Finance, four to five years, which is the only option
+  outside the US.
+
+There is also a batch mode covering 20 large US companies that produces the PDF report.
 
 ## Quick start
 
@@ -12,6 +18,33 @@ filed 10-K data via the SEC EDGAR XBRL API. Nothing is hand-entered.
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+Run the app:
+
+```bash
+.venv/bin/streamlit run app.py
+```
+
+Then type a company name: Apple, ASML, Reliance Industries, Nestle, SAP, 7203.T. Where a
+company trades in several places the app lists them, because a Zurich listing in francs and
+a US line in dollars are different instruments and picking one silently would hide that.
+
+## Working across markets
+
+Currency is where a global loader quietly produces a plausible wrong answer instead of an
+error, and three separate traps live there:
+
+| Trap | Example | What goes wrong |
+|---|---|---|
+| Minor-unit quotes | Shell trades at "3320.0" GBp | Read as pounds, the share price is 100x too high |
+| Reporting currency is not the quote currency | Shell reports USD, quotes GBp | Cash flows and share price in different currencies |
+| The currency flag itself is wrong | HCL Technologies tagged USD, reports INR | Believing it overstates the company 100x |
+
+The defence is a fact that depends on no tag: market capitalisation is unambiguously in the
+quote currency, so whichever reading of the statements implies a believable price-to-sales
+ratio is the right one. That test only discriminates when the currencies differ by an order
+of magnitude, as rupees and dollars do; between USD and GBP at 0.79 both readings look
+equally plausible, so there the source's own tag is the better evidence and is used.
 
 Download the data (writes `data/<TICKER>_financials.csv` for the whole universe, cached
 locally so re-runs do not re-hit EDGAR). SEC asks callers to identify themselves with a
