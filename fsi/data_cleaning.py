@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.data_loader import REQUIRED_COLUMNS
+from fsi.data_loader import REQUIRED_COLUMNS
 
 NUMERIC_COLUMNS = [c for c in REQUIRED_COLUMNS if c != "fiscal_year"]
 

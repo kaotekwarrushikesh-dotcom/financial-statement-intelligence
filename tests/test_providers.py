@@ -11,8 +11,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.providers import resolve
-from src.providers.yahoo import normalise_quote, resolve_statement_currency
+from fsi.providers import resolve
+from fsi.providers.yahoo import normalise_quote, resolve_statement_currency
 
 
 def test_pence_quotes_are_converted_to_pounds():
@@ -33,7 +33,7 @@ def test_major_unit_quotes_pass_through_untouched():
 def test_far_apart_currencies_are_decided_by_market_cap(monkeypatch):
     """Infosys reports in USD and quotes in INR, roughly 95 to one. There the plausibility
     test discriminates, and it must, because the flag is right in this case."""
-    from src.providers import yahoo
+    from fsi.providers import yahoo
 
     monkeypatch.setattr(yahoo, "fx_rate", lambda a, b: 95.0)
     currency, rate, notes = resolve_statement_currency("USD", "INR", 20e9, 4.7e12)
@@ -45,7 +45,7 @@ def test_far_apart_currencies_are_decided_by_market_cap(monkeypatch):
 def test_far_apart_currencies_ignore_a_wrong_flag(monkeypatch):
     """HCL Technologies is tagged USD while reporting in rupees. Believing the tag would
     overstate the company a hundredfold."""
-    from src.providers import yahoo
+    from fsi.providers import yahoo
 
     monkeypatch.setattr(yahoo, "fx_rate", lambda a, b: 95.0)
     currency, rate, _ = resolve_statement_currency("USD", "INR", 1.3e12, 3.7e12)
@@ -55,7 +55,7 @@ def test_far_apart_currencies_ignore_a_wrong_flag(monkeypatch):
 def test_similar_currencies_trust_the_declared_flag(monkeypatch):
     """Shell reports in USD and quotes in GBP at about 0.79. Both readings look equally
     plausible on a price-to-sales test, so the source's tag is the better evidence."""
-    from src.providers import yahoo
+    from fsi.providers import yahoo
 
     monkeypatch.setattr(yahoo, "fx_rate", lambda a, b: 0.79)
     currency, rate, notes = resolve_statement_currency("USD", "GBP", 285e9, 183e9)

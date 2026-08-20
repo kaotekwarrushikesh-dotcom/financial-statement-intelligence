@@ -12,9 +12,9 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.company import analyse
-from src.financial_health import PILLARS
-from src.providers import resolve as resolver
+from fsi.company import analyse
+from fsi.financial_health import PILLARS
+from fsi.providers import resolve as resolver
 
 st.set_page_config(page_title="Financial Statement Intelligence", page_icon="📊", layout="wide")
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.reporting import main
+from fsi.reporting import main
 
 if __name__ == "__main__":
     main(Path(__file__).parent)

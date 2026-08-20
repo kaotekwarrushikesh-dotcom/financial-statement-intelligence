@@ -12,6 +12,20 @@ Type a company name into the app and get its financial health.
 
 There is also a batch mode covering 20 large US companies that produces the PDF report.
 
+## Install as a library
+
+The analysis is a pip-installable package, so other projects can depend on it without
+vendoring a copy:
+
+```bash
+pip install "git+https://github.com/kaotekwarrushikesh-dotcom/financial-statement-intelligence.git"
+```
+
+```python
+from fsi.company import analyse
+analysis = analyse("AAPL")
+```
+
 ## Quick start
 
 ```bash
@@ -117,7 +131,7 @@ financial_statement_intelligence/
 ├── data/                       one CSV per company, plus a cached EDGAR download
 ├── reports/                    generated PDF and CSV outputs
 ├── notebooks/
-├── src/
+├── fsi/
 │   ├── edgar_fetch.py          SEC EDGAR download, tag mapping, normalization
 │   ├── universe.py             the 20 companies and their sectors
 │   ├── data_loader.py          read CSV, validate required columns

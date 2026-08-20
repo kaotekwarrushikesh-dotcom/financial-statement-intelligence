@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.data_cleaning import clean_financials
-from src.data_loader import load_financials
-from src.financial_health import PILLARS, financial_health_score
-from src.ratios import calculate_ratios
-from src.trends import trend_report
+from fsi.data_cleaning import clean_financials
+from fsi.data_loader import load_financials
+from fsi.financial_health import PILLARS, financial_health_score
+from fsi.ratios import calculate_ratios
+from fsi.trends import trend_report
 
 DEFAULT_DATA = Path(__file__).parent / "data" / "AAPL_financials.csv"
 

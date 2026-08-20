@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "financial-statement-intelligence"
+version = "1.0.0"
+description = "Financial statement intelligence: ratios, trends and a financial health score"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "requests>=2.31",
+    "yfinance>=0.2.40",
+]
+
+[tool.setuptools.packages.find]
+# reportlab and streamlit are deliberately not dependencies: the PDF report and the
+# dashboard are entry points of this repo, not of the library, and a consumer importing
+# the ratio and scoring functions should not be made to install either.
+include = ["fsi*"]

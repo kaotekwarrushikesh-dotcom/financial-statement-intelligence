@@ -31,7 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from src.data_loader import REQUIRED_COLUMNS
+from fsi.data_loader import REQUIRED_COLUMNS
 
 INCOME_MAP = {
     "revenue": ["Total Revenue", "Operating Revenue"],

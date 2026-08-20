@@ -1,10 +1,10 @@
 import pandas as pd
 import pytest
 
-from src.data_cleaning import clean_financials
-from src.financial_health import MetricSpec, financial_health_score, score_metric
-from src.ratios import calculate_ratios
-from src.trends import cagr
+from fsi.data_cleaning import clean_financials
+from fsi.financial_health import MetricSpec, financial_health_score, score_metric
+from fsi.ratios import calculate_ratios
+from fsi.trends import cagr
 
 
 def make_row(year: int, **overrides) -> dict:

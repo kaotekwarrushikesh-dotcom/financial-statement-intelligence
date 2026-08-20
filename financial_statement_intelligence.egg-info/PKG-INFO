@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: financial-statement-intelligence
+Version: 1.0.0
+Summary: Financial statement intelligence: ratios, trends and a financial health score
+Requires-Python: >=3.11
+Requires-Dist: pandas>=2.0
+Requires-Dist: numpy>=1.24
+Requires-Dist: requests>=2.31
+Requires-Dist: yfinance>=0.2.40

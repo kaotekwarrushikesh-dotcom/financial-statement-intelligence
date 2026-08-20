@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.data_cleaning import clean_financials
-from src.financial_health import financial_health_score
-from src.providers import resolve as resolver
-from src.providers import yahoo
-from src.ratios import calculate_ratios
-from src.trends import trend_report
+from fsi.data_cleaning import clean_financials
+from fsi.financial_health import financial_health_score
+from fsi.providers import resolve as resolver
+from fsi.providers import yahoo
+from fsi.ratios import calculate_ratios
+from fsi.trends import trend_report
 
 CACHE_DIR = Path(os.environ.get("FSI_CACHE", Path.home() / ".cache" / "fsi"))
 
@@ -47,7 +47,7 @@ class Analysis:
 
 def _from_edgar(ticker: str) -> tuple[pd.DataFrame, str, list[str]]:
     """Ten years of filed data for a US company."""
-    from src.edgar_fetch import CIK_OVERRIDES, build_company_frame, load_ticker_map
+    from fsi.edgar_fetch import CIK_OVERRIDES, build_company_frame, load_ticker_map
 
     cache = CACHE_DIR / "edgar"
     tickers = load_ticker_map(cache)

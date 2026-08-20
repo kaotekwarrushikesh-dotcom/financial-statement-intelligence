@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from src.edgar_fetch import CIK_OVERRIDES, build_company_frame, load_ticker_map
-from src.universe import UNIVERSE
+from fsi.edgar_fetch import CIK_OVERRIDES, build_company_frame, load_ticker_map
+from fsi.universe import UNIVERSE
 
 DATA_DIR = Path(__file__).parent / "data"
 CACHE_DIR = DATA_DIR / ".edgar_cache"

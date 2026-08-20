@@ -18,12 +18,12 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from src.data_cleaning import clean_financials
-from src.data_loader import load_financials
-from src.financial_health import PILLARS, financial_health_score
-from src.ratios import calculate_ratios
-from src.trends import trend_report
-from src.universe import UNIVERSE
+from fsi.data_cleaning import clean_financials
+from fsi.data_loader import load_financials
+from fsi.financial_health import PILLARS, financial_health_score
+from fsi.ratios import calculate_ratios
+from fsi.trends import trend_report
+from fsi.universe import UNIVERSE
 
 INK = colors.HexColor("#1a1a1a")
 MUTED = colors.HexColor("#6b6b6b")
