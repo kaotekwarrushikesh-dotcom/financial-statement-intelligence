@@ -10,6 +10,12 @@ Type a company name into the app and get its financial health.
 - **Everywhere else** uses Yahoo Finance, four to five years, which is the only option
   outside the US.
 
+Every company is scored twice: against fixed published thresholds, and by percentile against
+its sector peers. Where the two disagree, the disagreement is the output, and the section on
+[sector-relative scoring](#sector-relative-scoring-and-what-testing-it-actually-showed)
+explains what building it revealed about where absolute thresholds go wrong and where peer
+comparison still cannot help.
+
 There is also a batch mode covering 20 large US companies that produces the PDF report.
 
 ## Install as a library
@@ -139,6 +145,7 @@ financial_statement_intelligence/
 │   ├── ratios.py               profitability, efficiency, leverage, cash flow
 │   ├── trends.py               YoY change, CAGR, plain-language narratives
 │   ├── financial_health.py     pillar scoring and overall score
+│   ├── peers.py                the same pillars scored by percentile against sector peers
 │   └── reporting.py            cross-company analysis and PDF generation
 ├── tests/
 ├── fetch_data.py               download all companies
@@ -253,16 +260,79 @@ or 100 would be a fabricated result. Three cases occur in this universe:
 | 19 | ABBV AbbVie | Healthcare | 42.2 | Weak |
 | 20 | PFE Pfizer | Healthcare | 42.0 | Weak |
 
+## Sector-relative scoring, and what testing it actually showed
+
+The limitation below used to end with "peer-relative scoring is the fix". It has now been
+built (`fsi/peers.py`), and the honest answer is that it fixes half the problem and exposes
+why the other half is harder. Finding that out is worth more than the feature.
+
+The method reuses the absolute scorer's own pillars, weights and metric direction, and
+replaces the threshold score with a percentile rank against sector peers. A company is never
+counted as its own peer. Peers come from the 20-company universe, whose statements are cached
+in the repository, so this needs no network call.
+
+### What it fixed: the cross-sector distortion is real and large
+
+| Company | Absolute | Against Technology peers | Gap |
+|---|---|---|---|
+| Microsoft | 83.6 Strong | 53.4 Adequate | -30.2 |
+| Apple | 73.3 Healthy | 44.1 Weak | -29.2 |
+| Oracle | 49.4 Weak | 17.6 Distressed | -31.8 |
+| Adobe (typed in, outside the universe) | 90.6 Strong | 55.7 Adequate | -34.9 |
+
+Every Technology name falls by roughly 30 points. The absolute score was partly rewarding
+them for being in a structurally rich sector rather than for how they are run. Against the
+companies they actually compete with, Apple is unremarkable and Oracle is the weakest of the
+four, largely on a negative free cash flow margin while the other three run at 20% or better.
+
+### What it did not fix: Walmart, the case that motivated it
+
+| Company | Absolute | Against Consumer Staples peers | Gap |
+|---|---|---|---|
+| Walmart | 45.1 Weak | 40.6 Weak | -4.5 |
+
+Walmart does not move. The reason is that GICS "Consumer Staples" holds two different business
+models at once:
+
+| | Net margin | Asset turnover |
+|---|---|---|
+| Walmart | 3.1% | 2.48x |
+| Costco | 2.9% | 3.57x |
+| PepsiCo | 8.8% | 0.87x |
+| P&G | 18.4% | 0.69x |
+| Coca-Cola | 27.3% | 0.46x |
+
+Thin-margin, high-turnover retail sits in the same sector label as thick-margin, low-turnover
+branded goods, with a roughly nine-fold margin spread between them. Ranking Walmart against
+Coca-Cola on margin repeats the original category error at a smaller scale. **Sector-level
+peers are too coarse; the real fix is industry-level peers**, which the roadmap now says
+instead of what it used to say.
+
+### A structural property worth stating
+
+Percentile scores are zero-sum inside a peer group. They average to the middle by
+construction, so this reading can never say "this whole sector is excellent" and a company
+cannot improve its peer score except at a peer's expense. Only the absolute score can make a
+cross-sector statement. That is precisely why both are reported and neither is blended into
+the other: averaging a 45 that is really a 78 for its sector into a 61 would destroy the only
+information the comparison exists to produce.
+
+Sectors with fewer than three peers (Energy, Communication Services, and Consumer
+Discretionary in this universe) get no peer score at all, and say so. A percentile over one or
+two peers is noise wearing a number.
+
 ### Known limitations
 
 These matter more than the score itself in an interview setting.
 
-1. **Thresholds are absolute, not sector-relative.** This is the dominant weakness and it is
-   visible in the results: the top four are all asset-light software and advertising
-   businesses, while Walmart ranks 18th despite being a well-run company. Walmart's 3.1% net
-   margin is normal for grocery retail and scores near zero against a threshold calibrated on
-   absolute profitability. The ranking measures how a business model looks against fixed
-   thresholds, not how well the company is run. Peer-relative scoring is the fix.
+1. **The headline thresholds are absolute, not sector-relative.** This is still the dominant
+   weakness of the headline number, and it is visible in the ranking above: the top four are
+   all asset-light software and advertising businesses, while Walmart ranks 18th despite being
+   a well-run company. The sector comparison in the section above is the check on it, and it
+   only partly works. It removes the cross-sector distortion cleanly, dropping every
+   Technology name by about 30 points. It does not rescue Walmart, because sector labels are
+   too coarse to separate grocery retail from branded consumer goods. Industry-level peers are
+   the remaining fix, and the ranking above is still an absolute-threshold ranking.
 2. **ROE is distorted by buybacks.** Companies that repurchase heavily show ROE inflated by a
    shrunken equity base rather than by better returns, and at the extreme (Home Depot, AbbVie)
    equity goes negative and the ratio breaks entirely. Read ROE next to ROA, which is far
@@ -282,7 +352,12 @@ These matter more than the score itself in an interview setting.
 
 ## Roadmap
 
-- Peer benchmarking so thresholds become sector-relative
+- ~~Peer benchmarking so thresholds become sector-relative~~ **built** (`fsi/peers.py`), and it
+  showed that sector level is not granular enough
+- ~~Dashboard layer once the analytical core is settled~~ **built** (`app.py`, deployed)
+- Industry-level peer groups, so grocery retail is compared with grocery retail rather than
+  with branded consumer goods. This is what the Walmart result above says is actually needed
+- A wider peer universe. Three-peer sectors are the binding constraint on the comparison
+  today, and half the universe's sectors currently cannot be ranked at all
 - Three-year smoothing option for level-based pillars
 - Accrual and earnings-quality flags
-- Dashboard layer once the analytical core is settled

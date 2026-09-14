@@ -12,6 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from fsi import peers
 from fsi.company import analyse
 from fsi.financial_health import PILLARS
 from fsi.providers import resolve as resolver
@@ -32,6 +33,17 @@ def cached_search(query: str):
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_analyse(ticker: str):
     return analyse(ticker)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_universe_metrics():
+    """The peer universe's statements are cached CSVs in the repo, so this needs no network."""
+    return peers.load_universe_metrics()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_sector(ticker: str):
+    return peers.resolve_sector(ticker)
 
 
 def pct(v, dp=1):
@@ -137,6 +149,56 @@ with right:
         st.markdown(f"- {line}")
 
 st.divider()
+st.subheader("Against its sector")
+st.caption(
+    "The score above marks this company against fixed thresholds. The same pillars and "
+    "weights are applied again here, scored by percentile against sector peers instead. "
+    "Neither reading replaces the other, and where they disagree, the disagreement is the "
+    "point."
+)
+
+sector = cached_sector(a.ticker)
+comparison = peers.compare(a.ratios, a.health, sector, exclude_ticker=a.ticker,
+                           universe_metrics=cached_universe_metrics())
+
+if not comparison.usable:
+    st.info(comparison.relative["note"])
+else:
+    rel = comparison.relative
+    rel_colour = BAND_COLOUR.get(rel["rating"], "#6b6b6b")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Against fixed thresholds", f"{a.health['overall']:.1f}", a.health["rating"],
+              delta_color="off")
+    c2.metric(f"Against {rel['peer_count']} {rel['sector']} peers", f"{rel['overall']:.1f}",
+              rel["rating"], delta_color="off")
+    c3.metric("Gap", f"{comparison.gap:+.1f}",
+              "sector economics" if abs(comparison.gap) >= 15 else "broadly agree",
+              delta_color="off")
+
+    st.markdown(
+        f"Ranked against **{', '.join(rel['peers'])}**, the other {rel['sector']} companies "
+        "in the 20-company universe. A company is never counted as its own peer."
+    )
+
+    pillar_rows = []
+    for p in PILLARS:
+        abs_s = a.health["pillars"][p.name]
+        rel_s = rel["pillars"].get(p.name, float("nan"))
+        pillar_rows.append({
+            "Pillar": p.name,
+            "Absolute": "n/a" if pd.isna(abs_s) else f"{abs_s:.1f}",
+            "Vs peers": "n/a" if pd.isna(rel_s) else f"{rel_s:.1f}",
+            "Gap": "n/a" if (pd.isna(abs_s) or pd.isna(rel_s)) else f"{rel_s - abs_s:+.1f}",
+        })
+    st.dataframe(pd.DataFrame(pillar_rows), hide_index=True, use_container_width=True)
+
+    st.caption(
+        "Percentile scores are zero-sum inside a peer group: they average to the middle by "
+        "construction, so this reading can never say a whole sector is excellent. Only the "
+        "absolute score can make a cross-sector statement, which is why both are kept."
+    )
+
+st.divider()
 st.subheader("Ratio history")
 
 r = a.ratios
@@ -174,8 +236,11 @@ st.download_button(
 
 st.divider()
 st.caption(
-    "The thresholds behind the score are absolute rather than sector-relative, so "
-    "capital-intensive businesses score lower than asset-light ones almost by construction. "
-    "This measures reported financial condition, not whether the shares are worth buying. "
-    "Full methodology and limitations are in the repository README."
+    "The headline score uses absolute thresholds, so capital-intensive businesses score lower "
+    "than asset-light ones almost by construction; the sector comparison above is the check on "
+    "that, and it only reaches sectors with at least three peers in the universe. Sector-level "
+    "peers are still coarse: GICS Consumer Staples holds both grocery retail and branded "
+    "consumer goods, whose margins differ roughly nine-fold, so Walmart is not rescued by it. "
+    "This measures reported financial condition, not whether the shares are worth buying. Full "
+    "methodology and limitations are in the repository README."
 )
