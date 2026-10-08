@@ -16,6 +16,7 @@ from fsi import peers
 from fsi.company import analyse
 from fsi.financial_health import PILLARS
 from fsi.providers import resolve as resolver
+from fsi.providers import yahoo
 
 st.set_page_config(page_title="Financial Statement Intelligence", page_icon="📊", layout="wide")
 
@@ -44,6 +45,12 @@ def cached_universe_metrics():
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_sector(ticker: str):
     return peers.resolve_sector(ticker)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_prices(ticker: str, period: str):
+    """Shorter TTL than the statements: filings are stable for months, a share price is not."""
+    return yahoo.price_history(ticker, period)
 
 
 def pct(v, dp=1):
@@ -119,6 +126,50 @@ if a.notes:
             st.markdown(f"- {n}")
 
 st.divider()
+st.subheader("At a glance")
+
+latest = a.ratios.iloc[-1]
+prior = a.ratios.iloc[-2] if len(a.ratios) > 1 else None
+
+
+def scaled(value, currency):
+    """Statement figures arrive in millions. Market capitalisation does not, so the two are
+    never passed through the same formatter: doing so is how a company ends up displayed a
+    million times too large."""
+    if value is None or pd.isna(value):
+        return "n/a"
+    for cutoff, suffix in ((1_000_000, "tn"), (1_000, "bn")):
+        if abs(value) >= cutoff:
+            return f"{currency} {value / cutoff:,.1f}{suffix}"
+    return f"{currency} {value:,.0f}mn"
+
+
+def scaled_raw(value, currency):
+    """For figures already in whole currency units, such as market capitalisation."""
+    if not value or pd.isna(value):
+        return "n/a"
+    return scaled(value / 1_000_000, currency)
+
+
+revenue_growth = (
+    latest["revenue"] / prior["revenue"] - 1
+    if prior is not None and prior["revenue"] else float("nan")
+)
+
+g = st.columns(3)
+g[0].metric("Market capitalisation", scaled_raw(a.market_cap, a.currency))
+g[1].metric(f"Revenue FY{int(latest['fiscal_year'])}", scaled(latest["revenue"], a.currency),
+            "n/a" if pd.isna(revenue_growth) else f"{revenue_growth:+.1%} YoY")
+g[2].metric("Free cash flow", scaled(latest["fcf"], a.currency),
+            "n/a" if pd.isna(latest["fcf_margin"]) else f"{latest['fcf_margin']:.1%} of revenue")
+
+g2 = st.columns(4)
+g2[0].metric("EBITDA margin", pct(latest["ebitda_margin"]))
+g2[1].metric("Net margin", pct(latest["net_margin"]))
+g2[2].metric("Return on equity", pct(latest["roe"]))
+g2[3].metric("Debt to equity", times(latest["debt_to_equity"]))
+
+st.divider()
 
 left, right = st.columns([1, 1])
 
@@ -165,19 +216,45 @@ if not comparison.usable:
     st.info(comparison.relative["note"])
 else:
     rel = comparison.relative
-    rel_colour = BAND_COLOUR.get(rel["rating"], "#6b6b6b")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Against fixed thresholds", f"{a.health['overall']:.1f}", a.health["rating"],
-              delta_color="off")
-    c2.metric(f"Against {rel['peer_count']} {rel['sector']} peers", f"{rel['overall']:.1f}",
-              rel["rating"], delta_color="off")
-    c3.metric("Gap", f"{comparison.gap:+.1f}",
-              "sector economics" if abs(comparison.gap) >= 15 else "broadly agree",
-              delta_color="off")
+    gap = comparison.gap
 
-    st.markdown(
-        f"Ranked against **{', '.join(rel['peers'])}**, the other {rel['sector']} companies "
-        "in the 20-company universe. A company is never counted as its own peer."
+    c1, c2 = st.columns(2)
+    c1.metric("Scored against fixed thresholds", f"{a.health['overall']:.1f}/100",
+              a.health["rating"], delta_color="off")
+    c2.metric(f"Scored against {rel['peer_count']} {rel['sector']} peers",
+              f"{rel['overall']:.1f}/100", rel["rating"], delta_color="off")
+
+    # A bare "-29.2" told the reader nothing. What matters is the direction and what it means
+    # about the company, so the gap is stated as a sentence rather than left as a number.
+    direction = "lower" if gap < 0 else "higher"
+    headline = (f"**{a.name} scores {abs(gap):.1f} points {direction} against its "
+                f"{rel['sector']} peers than against fixed thresholds.**")
+
+    if gap <= -15:
+        meaning = (
+            f"The headline score is partly rewarding {a.name} for operating in a sector with "
+            f"strong economics rather than for how the company is run. Measured against the "
+            f"companies it actually competes with, it is weaker than the headline suggests."
+        )
+    elif gap >= 15:
+        meaning = (
+            f"The headline score is penalising {a.name} for its sector's economics rather "
+            f"than for how the company is run. Against the companies it actually competes "
+            f"with, it holds up better than the headline suggests."
+        )
+    else:
+        meaning = (
+            "The two readings broadly agree, so the headline score is not being distorted by "
+            "sector economics in either direction here."
+        )
+
+    st.markdown(headline)
+    st.markdown(meaning)
+    st.caption(
+        f"Peer group: {', '.join(rel['peers'])}. These are the other {rel['sector']} companies "
+        "in the 20-company universe; a company is never counted as its own peer. The first "
+        "score asks \"is this a good business\". The second asks \"is this a good business "
+        "for its industry\"."
     )
 
     pillar_rows = []
@@ -196,6 +273,44 @@ else:
         "Percentile scores are zero-sum inside a peer group: they average to the middle by "
         "construction, so this reading can never say a whole sector is excellent. Only the "
         "absolute score can make a cross-sector statement, which is why both are kept."
+    )
+
+st.divider()
+st.subheader("Share price")
+st.caption(
+    "The statements above describe the business. This describes what the market has paid for "
+    "it over the same period, which is a different question and often tells a different story."
+)
+
+price_period = st.radio("Period", ["1y", "3y", "5y", "10y"], index=2, horizontal=True,
+                        key="price_period")
+
+try:
+    with st.spinner("Loading price history..."):
+        closes, price_currency, price_notes = cached_prices(a.ticker, price_period)
+except Exception as exc:  # noqa: BLE001 - the rest of the page is still worth showing
+    st.info(f"Price history is unavailable for {a.ticker}: {exc}")
+else:
+    first, last = float(closes.iloc[0]), float(closes.iloc[-1])
+    high, low = float(closes.max()), float(closes.min())
+    total_return = last / first - 1 if first else float("nan")
+    off_high = last / high - 1 if high else float("nan")
+
+    pm = st.columns(4)
+    pm[0].metric("Latest close", f"{price_currency} {last:,.2f}")
+    pm[1].metric(f"Return over {price_period}", f"{total_return:+.1%}")
+    # Shown as a value plus a sub-line rather than "low to high" in one string, which was
+    # wide enough to be truncated to "15.56 to 3..." in a four-column row.
+    pm[2].metric(f"{price_period} low", f"{low:,.2f}", f"high {high:,.2f}", delta_color="off")
+    pm[3].metric("Below period high", pct(off_high))
+
+    st.line_chart(closes.rename("Close"), height=320)
+
+    for note in price_notes:
+        st.caption(note)
+    st.caption(
+        f"Daily closes from Yahoo Finance, {len(closes):,} trading days. Not adjusted for "
+        "dividends, so this is the price paid rather than the total return earned."
     )
 
 st.divider()

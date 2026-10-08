@@ -309,3 +309,46 @@ def fetch(ticker: str) -> CompanyData:
         source="Yahoo Finance",
         notes=notes,
     )
+
+
+def price_history(ticker: str, period: str = "5y") -> tuple[pd.Series, str, list[str]]:
+    """Daily closing prices, already converted out of minor units.
+
+    Returned alongside the currency the series is actually in, because this hits exactly the
+    trap `normalise_quote` exists for: a London listing quotes in pence, so an unconverted
+    chart would be right in shape and wrong by a factor of a hundred on every axis label. The
+    same divisor is applied here rather than a second copy of the rule living in the UI.
+    """
+    import yfinance as yf
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        frame = yf.Ticker(ticker).history(period=period, auto_adjust=False)
+
+    if frame.empty or "Close" not in frame:
+        raise ValueError(f"no price history available for {ticker}")
+
+    closes = frame["Close"].dropna()
+    if closes.empty:
+        raise ValueError(f"no usable closing prices for {ticker}")
+
+    raw_currency = ""
+    try:
+        # Deliberately NOT upper-cased. The minor-unit codes are case-sensitive ("GBp" is
+        # pence, "GBP" is pounds) and upper-casing here silently defeated the conversion
+        # below, charting Shell at 3,780 instead of 37.81.
+        raw_currency = yf.Ticker(ticker).fast_info.get("currency") or ""
+    except Exception:  # noqa: BLE001 - the chart is still useful without a currency label
+        pass
+
+    notes: list[str] = []
+    code = MINOR_UNIT_CODES.get(raw_currency)
+    if code is not None:
+        divisor = MINOR_UNIT_CURRENCIES.get(code, 100.0)
+        closes = closes / divisor
+        raw_currency = code
+        notes.append(
+            f"Prices quoted in minor units, divided by {divisor:.0f} to show {code}.")
+
+    closes.index = pd.to_datetime(closes.index).tz_localize(None)
+    return closes, raw_currency, notes
