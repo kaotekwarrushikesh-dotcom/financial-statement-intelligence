@@ -1,0 +1,10 @@
+# Streamlit's stock theme leads on a bright consumer red, which reads wrong on a page whose
+# job is to state a financial verdict soberly. These four values are the supported way to
+# change it; injecting CSS through unsafe_allow_html is the alternative and it breaks on
+# Streamlit upgrades.
+[theme]
+base = "light"
+primaryColor = "#1e5f8c"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f6f8"
+textColor = "#1a1d21"
