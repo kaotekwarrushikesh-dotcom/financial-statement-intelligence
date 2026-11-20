@@ -289,7 +289,7 @@ with head_left:
         st.markdown(line)
     st.caption(
         f"{a.source}  ·  FY{a.first_year} to FY{a.last_year}  ·  "
-        f"figures in {a.currency} millions  ·  {a.region}"
+        f"statement figures in millions"
     )
 
 with head_right:
@@ -302,6 +302,20 @@ with head_right:
         f"Weak 35</div>",
         unsafe_allow_html=True,
     )
+
+# The header strip from before the restructure. Folding region, currency and history into
+# a caption lost the share price altogether: it survived only inside the price tab, three
+# sections down, when it is one of the first things anyone checks. These are facts rather
+# than findings, so they sit under the verdict instead of competing with it.
+# Unequal widths on purpose. st.metric renders its value large and never wraps, so an
+# equal split truncated "United States" to "United St..."; region needs the room and a
+# three-letter currency code does not.
+facts = st.columns([1.1, 1.5, 0.7, 1.0])
+facts[0].metric("Share price",
+                f"{a.currency} {a.share_price:,.2f}" if a.share_price else "n/a")
+facts[1].metric("Region", a.region)
+facts[2].metric("Currency", a.currency)
+facts[3].metric("History", f"{a.years} years")
 
 if a.notes:
     # Expanded, unlike every other disclosure on the page. These notes are the ones that
