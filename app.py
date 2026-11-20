@@ -52,7 +52,7 @@ METRIC_DISPLAY = {
     "debt_to_equity": ("Debt to equity", "times"),
     "interest_coverage": ("Interest coverage", "times"),
     "current_ratio": ("Current ratio", "times"),
-    "cfo_to_net_income": ("Cash conversion, CFO over net income", "times"),
+    "cfo_to_net_income": ("Cash conversion", "times"),
     "asset_turnover": ("Asset turnover", "times"),
 }
 
@@ -393,6 +393,18 @@ with bars:
             min(max(s / 100, 0.0), 1.0),
             text=f"{p.name}  ·  {s:.0f}  ·  {rating_band(s)}  ·  {p.weight:.0%} of the score",
         )
+        # Which ratios feed this pillar, and how much each one counted. Named here rather
+        # than only inside the thresholds panel, because a pillar score is uninterpretable
+        # until you know what went into it and a reader should not have to open anything to
+        # find that out. The weights shown are the ones that actually applied: an unreported
+        # metric is dropped and the pillar renormalizes around it, so printing the specified
+        # weight would describe a calculation that did not happen.
+        rows = detail[p.name]
+        live = [m for m in rows if not pd.isna(m["score"])]
+        applied = sum(m["weight"] for m in live) or 1.0
+        parts = [f"{m['label']} {m['weight'] / applied:.0%}" for m in live]
+        parts += [f"{m['label']} excluded" for m in rows if pd.isna(m["score"])]
+        st.caption(" · ".join(parts))
 
     if a.health["unavailable_metrics"]:
         # Labelled, not raw. The engine keys metrics by column name, and letting
