@@ -18,7 +18,6 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fsi import peers
 from fsi.company import analyse
 from fsi.financial_health import PILLARS, build_metric_inputs, rating_band, score_metric
 from fsi.providers import resolve as resolver
@@ -65,17 +64,6 @@ def cached_search(query: str):
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_analyse(ticker: str):
     return analyse(ticker)
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def cached_universe_metrics():
-    """The peer universe's statements are cached CSVs in the repo, so this needs no network."""
-    return peers.load_universe_metrics()
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def cached_sector(ticker: str):
-    return peers.resolve_sector(ticker)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -463,78 +451,9 @@ st.divider()
 
 st.subheader("The detail")
 
-tab_sector, tab_price, tab_history, tab_method = st.tabs(
-    ["Against its sector", "Share price", "Ratio history", "Method and limits"]
+tab_price, tab_history, tab_method = st.tabs(
+    ["Share price", "Ratio history", "Method and limits"]
 )
-
-with tab_sector:
-    sector = cached_sector(a.ticker)
-    comparison = peers.compare(a.ratios, a.health, sector, exclude_ticker=a.ticker,
-                               universe_metrics=cached_universe_metrics())
-
-    if not comparison.usable:
-        st.info(comparison.relative["note"])
-    else:
-        rel = comparison.relative
-        gap = comparison.gap
-
-        c1, c2 = st.columns(2)
-        c1.metric("Scored against fixed thresholds", f"{a.health['overall']:.1f}/100",
-                  a.health["rating"], delta_color="off")
-        c2.metric(f"Scored against {rel['peer_count']} {rel['sector']} peers",
-                  f"{rel['overall']:.1f}/100", rel["rating"], delta_color="off")
-
-        # A bare "-29.2" told the reader nothing. What matters is the direction and what it
-        # means about the company, so the gap is stated as a sentence rather than a number.
-        direction = "lower" if gap < 0 else "higher"
-        st.markdown(
-            f"**{a.name} scores {abs(gap):.1f} points {direction} against its "
-            f"{rel['sector']} peers than against fixed thresholds.**"
-        )
-
-        if gap <= -15:
-            st.markdown(
-                f"The headline score is partly rewarding {a.name} for operating in a sector "
-                f"with strong economics rather than for how the company is run. Measured "
-                f"against the companies it actually competes with, it is weaker than the "
-                f"headline suggests."
-            )
-        elif gap >= 15:
-            st.markdown(
-                f"The headline score is penalising {a.name} for its sector's economics "
-                f"rather than for how the company is run. Against the companies it actually "
-                f"competes with, it holds up better than the headline suggests."
-            )
-        else:
-            st.markdown(
-                "The two readings broadly agree, so the headline score is not being "
-                "distorted by sector economics in either direction here."
-            )
-
-        pillar_rows = []
-        for p in PILLARS:
-            abs_s = a.health["pillars"][p.name]
-            rel_s = rel["pillars"].get(p.name, float("nan"))
-            pillar_rows.append({
-                "Pillar": p.name,
-                "Absolute": None if pd.isna(abs_s) else round(abs_s, 1),
-                "Vs peers": None if pd.isna(rel_s) else round(rel_s, 1),
-                "Gap": None if (pd.isna(abs_s) or pd.isna(rel_s)) else round(rel_s - abs_s, 1),
-            })
-        st.dataframe(
-            pd.DataFrame(pillar_rows), hide_index=True, use_container_width=True,
-            column_config={
-                "Absolute": st.column_config.NumberColumn(format="%.1f"),
-                "Vs peers": st.column_config.NumberColumn(format="%.1f"),
-                "Gap": st.column_config.NumberColumn(format="%+.1f"),
-            },
-        )
-        st.caption(
-            f"Peer group: {', '.join(rel['peers'])}. The first score asks \"is this a good "
-            "business\". The second asks \"is this a good business for its industry\". "
-            "Percentile scores are zero-sum inside a peer group and average to the middle "
-            "by construction, so this reading can never say a whole sector is excellent."
-        )
 
 with tab_price:
     st.caption(
@@ -701,9 +620,22 @@ with tab_method:
         "sectors with at least three peers in the 20-company universe."
     )
     st.markdown(
-        "**Where the sector check is still coarse.** GICS Consumer Staples holds both "
-        "grocery retail and branded consumer goods, whose margins differ roughly nine-fold, "
-        "so Walmart is not rescued by it."
+        "**The score is sector-blind, and nothing here corrects for that.** Thresholds "
+        "are absolute, so a capital-intensive or thin-margin business scores lower than "
+        "an asset-light one almost by construction. Grocery retail runs on roughly 3% net "
+        "margins, which is ordinary for the trade and scores near zero here. Read a low "
+        "score as a description of the financial profile, not as a judgement that the "
+        "business is badly run."
+    )
+    st.markdown(
+        "**Why there is no peer comparison.** There was one, ranking each company by "
+        "percentile against sector peers. It was withdrawn because the peer universe is "
+        "20 companies, which leaves three sectors with too few members to rank at all and "
+        "the rest with three or four. A rank over three peers can only land on 0, 33, 67 "
+        "or 100, and the group is fixed per sector rather than chosen per company, so "
+        "every Consumer Discretionary name was measured against the same Amazon, Tesla "
+        "and Home Depot. The arithmetic was sound and the inputs were too thin to carry "
+        "it. It returns when the universe is deep enough to mean something."
     )
     st.markdown(
         "**What this is not.** It measures reported financial condition, not whether the "
