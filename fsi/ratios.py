@@ -19,6 +19,11 @@ def calculate_ratios(df: pd.DataFrame) -> pd.DataFrame:
     positive_equity = r["equity"] > 0
     r["roe"] = (r["net_income"] / r["equity"]).where(positive_equity)
     r["roa"] = r["net_income"] / r["total_assets"]
+    # The third DuPont term: ROE = net_margin x asset_turnover x equity_multiplier. Masked
+    # on the same condition as ROE, because an equity multiplier computed on negative book
+    # equity is the identical sign artefact and would let the identity reconcile to a
+    # number that means nothing.
+    r["equity_multiplier"] = (r["total_assets"] / r["equity"]).where(positive_equity)
 
     # Efficiency
     r["asset_turnover"] = r["revenue"] / r["total_assets"]

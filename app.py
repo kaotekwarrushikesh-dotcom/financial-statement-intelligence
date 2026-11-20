@@ -9,6 +9,7 @@ one flat scroll, which meant the reader had to read all of it to find out which 
 the answer.
 """
 
+import math
 import sys
 from pathlib import Path
 
@@ -122,6 +123,43 @@ def metric_detail(ratios: pd.DataFrame) -> dict[str, list[dict]]:
             })
         detail[pillar.name] = rows
     return detail
+
+
+def dupont_terms(row) -> tuple[float, float, float] | None:
+    """The three DuPont terms for one year, or None where the identity cannot be formed."""
+    nm, at = row.get("net_margin", float("nan")), row.get("asset_turnover", float("nan"))
+    em = row.get("equity_multiplier", float("nan"))
+    if any(v is None or pd.isna(v) for v in (nm, at, em)):
+        return None
+    return nm, at, em
+
+
+def dupont_drivers(ratios: pd.DataFrame) -> dict | None:
+    """Which of the three terms actually moved ROE over the period on file.
+
+    A multiplicative identity decomposes cleanly in logs: the log change in ROE is exactly
+    the sum of the log changes in its three terms, so each term's share of the move is well
+    defined rather than a rough attribution. Logs need every value strictly positive, which
+    a loss-making year and negative book equity both break, so both are checked instead of
+    assumed.
+    """
+    if len(ratios) < 2:
+        return None
+    first, last = ratios.iloc[0], ratios.iloc[-1]
+    start, end = dupont_terms(first), dupont_terms(last)
+    if start is None or end is None or any(v <= 0 for v in start + end):
+        return None
+
+    deltas = [math.log(e / s0) for s0, e in zip(start, end)]
+    total = sum(deltas)
+    if abs(total) < 1e-9:
+        return None
+    return {
+        "shares": list(zip(("net margin", "asset turnover", "equity multiplier"), 
+                           (d / total for d in deltas))),
+        "roe_start": first["roe"], "roe_end": last["roe"],
+        "fy_start": int(first["fiscal_year"]), "fy_end": int(last["fiscal_year"]),
+    }
 
 
 def verdict_lines(a, detail) -> list[str]:
@@ -293,6 +331,52 @@ g2 = st.columns(4)
 for col, key in zip(g2, ["ebitda_margin", "net_margin", "roe", "debt_to_equity"]):
     row = by_metric[key]
     col.metric(row["label"], unit_fmt(row["value"], row["unit"]), banded(key), delta_color="off")
+
+# ROE taken apart, directly under the ROE the row above reports. ROE is the product of
+# three things this scorecard already measures separately, so a high one says nothing on
+# its own about which of the three produced it: Apple and Home Depot land within 40 points
+# of each other on ROE while earning 31% and 13% on their assets. Without this line the
+# page cannot tell those two apart.
+terms = dupont_terms(latest)
+if terms is not None:
+    nm, at, em = terms
+    st.markdown(
+        f"**Return on equity {pct(latest['roe'])}**  =  net margin {pct(nm)}  ×  "
+        f"asset turnover {times(at)}  ×  equity multiplier {times(em)}"
+    )
+    st.caption(
+        f"The business earns {pct(latest['roa'])} on its assets. Everything above that is "
+        f"capital structure: the equity multiplier of {times(em)} says assets are "
+        f"{em:.2f} times book equity, so the same operating performance is being spread "
+        f"over a smaller equity base."
+    )
+elif pd.isna(latest.get("roe", float("nan"))):
+    st.markdown("**Return on equity is not reported for this company.**")
+    st.caption(
+        f"Book equity is not positive, which sustained buybacks can cause, and both ROE "
+        f"and the equity multiplier flip sign and stop meaning anything when it happens. "
+        f"Return on assets, at {pct(latest['roa'])}, is the reading that survives, and it "
+        f"is the one the Efficiency pillar scores."
+    )
+
+drivers = dupont_drivers(a.ratios)
+if drivers:
+    # Shares are shares of the move, and the move can be downward. Printing a bare "+67%"
+    # against a falling ROE reads as a term that helped when it is in fact most of the
+    # fall, so the direction is named and the signs are turned into words.
+    rose = drivers["roe_end"] >= drivers["roe_start"]
+    drove = [(lab, sh) for lab, sh in drivers["shares"] if sh >= 0]
+    opposed = [lab for lab, sh in drivers["shares"] if sh < 0]
+    ranked = ", ".join(f"{lab} {sh:.0%}"
+                       for lab, sh in sorted(drove, key=lambda t: -t[1]))
+    note = (f"Between FY{drivers['fy_start']} and FY{drivers['fy_end']} ROE "
+            f"{'rose' if rose else 'fell'} from {pct(drivers['roe_start'])} to "
+            f"{pct(drivers['roe_end'])}. Share of that "
+            f"{'rise' if rose else 'fall'}: {ranked}.")
+    if opposed:
+        note += (f" {' and '.join(opposed).capitalize()} moved the other way and "
+                 f"partly offset it.")
+    st.caption(note)
 
 st.write("")
 
@@ -500,11 +584,58 @@ with tab_history:
         },
     )
 
+    st.markdown("**ROE decomposed**")
+    du = pd.DataFrame({
+        "FY": r["fiscal_year"].astype(int),
+        "Net margin": r["net_margin"] * 100,
+        "Asset turnover": r["asset_turnover"],
+        "Equity multiplier": r.get("equity_multiplier"),
+        "ROE": r["roe"] * 100,
+        "ROA": r["roa"] * 100,
+    })
+    st.dataframe(
+        du, hide_index=True, use_container_width=True,
+        column_config={
+            "FY": st.column_config.NumberColumn(format="%d"),
+            "Net margin": st.column_config.NumberColumn(format="%.1f%%"),
+            "Asset turnover": st.column_config.NumberColumn(format="%.2fx"),
+            "Equity multiplier": st.column_config.NumberColumn(format="%.2fx"),
+            "ROE": st.column_config.NumberColumn(format="%.1f%%"),
+            "ROA": st.column_config.NumberColumn(format="%.1f%%"),
+        },
+    )
+
+    # The three terms live on different scales, so plotting them raw puts a 0.27 margin and
+    # a 4.87 multiplier on one axis and hides the thing worth seeing. Indexing each to its
+    # own starting value puts them on a common footing, and the question the chart answers
+    # is which line pulled away from the others.
+    comp = du[["Net margin", "Asset turnover", "Equity multiplier"]]
+    base = comp.iloc[0]
+    if base.notna().all() and (base > 0).all():
+        indexed = comp.divide(base) * 100
+        # A fiscal year is a label, not a quantity: as an integer index Streamlit
+        # formats it with a thousands separator and the axis reads "2,016".
+        indexed.index = du["FY"].astype(str)
+        st.line_chart(indexed, height=260)
+        st.caption(
+            "Each term indexed to 100 in the first year on file. The line that pulls away "
+            "is the one carrying ROE, and an equity multiplier doing the pulling means the "
+            "return improved because the equity base shrank rather than because the "
+            "business did."
+        )
+    else:
+        st.caption(
+            "The indexed chart needs all three terms positive in the first year on file, "
+            "which is not the case here."
+        )
+
+    st.markdown("**Trends**")
+    fy_labels = r["fiscal_year"].astype(int).astype(str)
     chart_cols = st.columns(3)
     for col, (label, series) in zip(chart_cols, [
-        ("Revenue", r.set_index(r["fiscal_year"].astype(int))["revenue"]),
-        ("EBITDA margin", r.set_index(r["fiscal_year"].astype(int))["ebitda_margin"]),
-        ("FCF margin", r.set_index(r["fiscal_year"].astype(int))["fcf_margin"]),
+        ("Revenue", r.set_index(fy_labels)["revenue"]),
+        ("EBITDA margin", r.set_index(fy_labels)["ebitda_margin"]),
+        ("FCF margin", r.set_index(fy_labels)["fcf_margin"]),
     ]):
         col.caption(label)
         col.line_chart(series, height=180)
